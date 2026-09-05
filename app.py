@@ -177,3 +177,51 @@ if uploaded_files and st.button("Process Documents"):
         file_name="Processed_Candidates.zip",
         mime="application/zip"
     )
+def extract_roi(pil_img, bbox_pct):
+    """
+    Crops a specific zone from the page.
+    bbox_pct format: (ymin, xmin, ymax, xmax) in normalized scale (0.0 to 1.0)
+    """
+    width, height = pil_img.size
+    ymin, xmin, ymax, xmax = bbox_pct
+    
+    crop_box = (
+        int(xmin * width),
+        int(ymin * height),
+        int(xmax * width),
+        int(ymax * height)
+    )
+    return pil_img.crop(crop_box)
+
+def extract_with_easyocr_roi(pil_img):
+    # --- Standard Target Region: Top 50% of the Page ---
+    TOP_50_PERCENT_ROI = (0.00, 0.00, 0.50, 1.00)
+
+    # 1. Crop Top 50% Zone
+    top_crop = extract_roi(pil_img, TOP_50_PERCENT_ROI)
+    top_np = np.array(top_crop.convert('RGB'))
+    
+    # Run OCR on the top half
+    top_results = reader.readtext(top_np, detail=1)
+    top_text_block = " ".join([res[1] for res in top_results])
+
+    # Extract target fields from Top 50%
+    cand_name = clean_candidate_name(top_text_block)
+    cand_id = clean_candidate_id(top_text_block)
+
+    # 2. Fallback: Check full page if either field is missing from top 50%
+    if not cand_name or not cand_id:
+        full_np = np.array(pil_img.convert('RGB'))
+        full_results = reader.readtext(full_np, detail=1)
+        full_text_block = " ".join([res[1] for res in full_results])
+        
+        if not cand_name:
+            cand_name = clean_candidate_name(full_text_block)
+        if not cand_id:
+            cand_id = clean_candidate_id(full_text_block)
+            
+        full_text = full_text_block
+    else:
+        full_text = top_text_block
+
+    return cand_name, cand_id, full_text
